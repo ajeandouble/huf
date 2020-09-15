@@ -7,9 +7,14 @@ from datetime import datetime
 import time #dbg
 from textwrap import wrap
 import os
+import math
 
-# DOESNT WORK WITH UTF 8
-logging.basicConfig(stream=sys.stderr, level=logging.DEBUG)
+# DOESNTT WORK WITH BINARY CONTAINING '0' COZ 256 symbols cause integer overflow
+logger = logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
+logging.disable()
+
+compressed_str = ""
+bmap = {}
 
 class Node:
     def __init__(self, content, freq, lchild=None, rchild=None):
@@ -133,8 +138,8 @@ class HuffCoding:
         def make_codes_recursion(node, current_code):
             if not node:
                 return
-            
-            if node.content:
+
+            if node.content is not None:
                 self.codes[node.content] = current_code
                 self.binary_map[current_code] = node.content
             make_codes_recursion(node.lchild, current_code + "0")
@@ -151,31 +156,30 @@ def make_frequency_dict(data):
         if not content in frequency:
             frequency[content] = 0
         frequency[content] += 1
-        print(content)
+        #print(content)
     return frequency
 
 
 def get_encoded_binary(data, codes):
     encoded_str = ""
     for byte in data:
-        if byte == 0:
-            break
-        encoded_str +=  codes[byte]
-        #print(hex(byte), codes[byte])
-    print(encoded_str, 'encoded_str')
-    print(len(encoded_str))
-    
-    padding = len(encoded_str) % 8
-    print(f'padding={padding}')
+        encoded_str += codes[byte]
+    logging.info(f'len(encoded_str)={len(encoded_str)}, encoded_str={encoded_str}')
+    global compressed_str
+    compressed_str = encoded_str
+
+    if len(encoded_str) % 8 == 0:
+        padding = 0
+    else:
+        padding = 8 - len(encoded_str) % 8
+
+    logging.info(f'padding={padding}')
     encoded_binary = bytearray()
     for i in range(0, len(encoded_str), 8):
         byte = encoded_str[i:i+8]
         encoded_binary.append(int(byte, 2))
-        #print(byte, '<-b')
-        #print(int(byte, 2), 'e')
 
-    print(encoded_binary)
-    #exit(-1)
+    logging.info(f'encoded_binary={encoded_binary}')
     return encoded_binary, padding
 
 def create_header(filename, codes, padding, binary_map, encoded_binary):
@@ -186,7 +190,7 @@ def create_header(filename, codes, padding, binary_map, encoded_binary):
     filename = bytes(filename, 'utf-8')
     table += len(filename).to_bytes(1, 'little')
     table += filename
-    table += len(codes).to_bytes(1, 'little') # Number of codes
+    table += len(codes).to_bytes(2, 'little') # Number of codes
     
     binary_codes = ''
     codes_table = bytearray()
@@ -195,19 +199,19 @@ def create_header(filename, codes, padding, binary_map, encoded_binary):
         codes_table += len(binary).to_bytes(1, 'little')
         binary_codes += binary
     binary_codes = wrap(binary_codes, 8)
-    print(binary_codes[-1], padding)
-    print('e')
+    
+    logging.debug(f'binary_codes={binary_codes}')
     table += padding.to_bytes(1, 'little')
     table += codes_table
     binary_codes[-1] = binary_codes[-1].ljust(8, '0')
+    logging.debug(f'binary_codes={binary_codes}')
     encoded_binary_codes = bytearray()
     for byte in binary_codes:
         encoded_binary_codes  += int(byte, 2).to_bytes(1, 'little')
     
-    print(len(encoded_binary_codes), 'len encoded binary_code')
-    print(len(table))
-    print(len(codes_table))
-    print(encoded_binary_codes[0], 'nique')
+    logging.info(f'len(table)={len(table)}\tlen(codes_table)={len(codes_table)}')
+    logging.info(f'len(encoded_binary_codes={len(encoded_binary_codes)}')
+
     return table + encoded_binary_codes
 
 def compress(path):
@@ -218,16 +222,19 @@ def compress(path):
             while byte != b"":
                 data += byte
                 byte = file.read(1)
-                print(byte)
-                
+                #logging.debug(f'byte={byte}')
+            
             frequency = make_frequency_dict(data)
+            logging.debug(f'len(frequency)={len(frequency)}')
+            logging.debug(frequency)
             H = MinHeap()
             for content, freq in frequency.items():
                 H.insert(Node(content, freq))
             isMinHeap(H.heap)
             huffman = HuffCoding(H)
             codes, binary_map = huffman.make_codes()
-
+            logging.debug(codes)
+            logging.debug(f'len of data:{len(data)}')
             encoded_binary, padding = get_encoded_binary(data, codes)
             filename = os.path.split(path)[1]
             header = create_header(filename, codes, padding, binary_map, encoded_binary)
@@ -237,7 +244,6 @@ def compress(path):
         filename, binary_map, padding, data = parse_file(data)
         print(filename)
         deflated_data = deflate_data(binary_map, padding, data)
-        print(deflated_data)
         filename += '.bin'
         with open(filename, 'wb+') as compressed_file:
             compressed_file.write(data)
@@ -251,7 +257,7 @@ def decompress(path):
         while byte != b"":
             data += byte
             byte = file.read(1)
-            print(byte)
+            #print(byte)
     filename, binary_map, padding, data = parse_file(data)
     print(filename)
     deflated_data = deflate_data(binary_map, padding, data)
@@ -262,27 +268,31 @@ def decompress(path):
 def parse_file(data):
     filename_len = int(data[0])
     filename = data[1:filename_len + 1].decode('utf-8')
-    codes_len = data[filename_len + 1]
-    padding = data[filename_len + 2]
-    codes_table = data[filename_len + 3:filename_len + 3 + codes_len * 2]
-    #print(codes_table)
-    
+    codes_len = data[filename_len + 1: filename_len + 3]
+    codes_len = int.from_bytes(data[filename_len + 1: filename_len + 3], byteorder='little', signed=False)
+    padding = data[filename_len + 3]
+    codes_table = data[filename_len + 4:filename_len + 4 + codes_len * 2]
+
     binary_codes_len = 0
     i = 0
     while i < codes_len * 2:
-        binary_codes_len += int(data[filename_len + 3 + i + 1])
+        binary_codes_len += int(data[filename_len + 4 + i + 1])
         i += 2
 
-    start = 3 + filename_len + codes_len * 2
-    end = ((binary_codes_len % 8 + binary_codes_len) // 8) + start
+    logging.debug(f'binary_codes_len={binary_codes_len}')
+    # ERREUR DANS LA TABLE DES CODES
+    logging.debug(f'bcodelen={binary_codes_len}')
+    start = 4 + filename_len + codes_len * 2
+    end =  math.ceil(binary_codes_len / 8) + start
     binary_codes_bin = data[start:end]
 
     binary_codes_str = ""
     for byte in binary_codes_bin:
         binary_codes_str += bin(byte)[2:].rjust(8, '0')
-        print(bin(byte)[2:].rjust(8, '0'), '<-bc')
+        #print(bin(byte)[2:].rjust(8, '0'), '<-bc')
+    #binary_codes_str = binary_codes_str[:binary_codes_len]
 
-    binary_codes_str = binary_codes_str[:-padding]
+    #logging.debug(binary_codes_str, len(binary_codes_str))
     i = 0
     j = 0
     binary_map = {}
@@ -294,20 +304,38 @@ def parse_file(data):
         j += k
         i += 2
 
+    # OFFSET
+    logging.debug(padding)
+    logging.debug(f'\n{bmap}\n{binary_map}')
+    breakpoint()
+    
     return filename, binary_map, padding, data[end:]
 
 def deflate_data(binary_map, padding, data):
     bytes_str = ""
-    for i in range (len(data) - 1):
+    i = 0
+    while i < len(data) - 1:
         byte = bin(data[i])[2:]
-        #print(byte, 'byte')
+        logging.debug(f'byte={byte}')
         byte = byte.rjust(8, '0')
         bytes_str += byte
+        i += 1
     
-    last_byte = bin(data[len(data) - 1])[2:].rjust(8, '0')
-    last_byte = last_byte[padding:]
-    bytes_str = bytes_str + last_byte
-    print(bytes_str)
+    # PROBLEME FIN
+    # Delete n-padding bits of the last byte
+    last_byte = ''
+    try:
+        last_byte = bin(data[i])[2:].rjust(8, '0')[padding:]
+    except:
+        pass
+    #print(last_byte) #DBG
+    bytes_str += last_byte
+
+    logging.debug(f'len(bytes_str)={len(bytes_str)}\tbytes_str={bytes_str}')
+    
+    logging.debug(f'\n{compressed_str}\n{bytes_str}')
+    logging.debug((compressed_str == bytes_str))
+    #breakpoint()
     binary = ""
     decoded_text = ""
     decoded_file = bytearray()  
@@ -315,9 +343,11 @@ def deflate_data(binary_map, padding, data):
         binary += c
         if binary in binary_map:
             decoded_text += chr(binary_map[binary])
+            logging.debug(f'decoded_byte={hex(binary_map[binary])}')
             decoded_file += binary_map[binary].to_bytes(1, 'little')
             binary = ""
     
+    logging.debug(f'decoded_file={decoded_file}')
     #print(decoded_file.decode('utf8'))
     file = open('teub', 'wb')
     file.write(decoded_file)
