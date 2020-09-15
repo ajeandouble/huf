@@ -9,7 +9,7 @@ from textwrap import wrap
 import os
 import math
 
-    # PROBLEME QUAND C EST UN MULTIPLE DE 8 (binary_codes_str)
+# DOESNTT WORK WITH BINARY CONTAINING '0' COZ 256 symbols cause integer overflow
 logging.basicConfig(stream=sys.stderr, level=logging.DEBUG)
 
 compressed_str = ""
@@ -137,8 +137,8 @@ class HuffCoding:
         def make_codes_recursion(node, current_code):
             if not node:
                 return
-            
-            if node.content:
+
+            if node.content is not None:
                 self.codes[node.content] = current_code
                 self.binary_map[current_code] = node.content
             make_codes_recursion(node.lchild, current_code + "0")
@@ -178,11 +178,6 @@ def get_encoded_binary(data, codes):
         byte = encoded_str[i:i+8]
         encoded_binary.append(int(byte, 2))
 
-    #binary_map = {}
-    #for c, b in codes.items():
-    #    binary_map[b] = c
-    #print(codes, binary_map)
-
     logging.info(f'encoded_binary={encoded_binary}')
     return encoded_binary, padding
 
@@ -194,7 +189,7 @@ def create_header(filename, codes, padding, binary_map, encoded_binary):
     filename = bytes(filename, 'utf-8')
     table += len(filename).to_bytes(1, 'little')
     table += filename
-    table += len(codes).to_bytes(1, 'little') # Number of codes
+    table += len(codes).to_bytes(2, 'little') # Number of codes
     
     binary_codes = ''
     codes_table = bytearray()
@@ -229,16 +224,16 @@ def compress(path):
                 #logging.debug(f'byte={byte}')
             
             frequency = make_frequency_dict(data)
+            logging.debug(f'len(frequency)={len(frequency)}')
+            logging.debug(frequency)
             H = MinHeap()
             for content, freq in frequency.items():
                 H.insert(Node(content, freq))
             isMinHeap(H.heap)
-            logging.debug(frequency)
             huffman = HuffCoding(H)
             codes, binary_map = huffman.make_codes()
             logging.debug(codes)
             logging.debug(f'len of data:{len(data)}')
-            breakpoint()
             encoded_binary, padding = get_encoded_binary(data, codes)
             filename = os.path.split(path)[1]
             header = create_header(filename, codes, padding, binary_map, encoded_binary)
@@ -273,20 +268,21 @@ def decompress(path):
 def parse_file(data):
     filename_len = int(data[0])
     filename = data[1:filename_len + 1].decode('utf-8')
-    codes_len = data[filename_len + 1]
-    padding = data[filename_len + 2]
-    codes_table = data[filename_len + 3:filename_len + 3 + codes_len * 2]
+    codes_len = data[filename_len + 1: filename_len + 3]
+    codes_len = int.from_bytes(data[filename_len + 1: filename_len + 3], byteorder='little', signed=False)
+    padding = data[filename_len + 3]
+    codes_table = data[filename_len + 4:filename_len + 4 + codes_len * 2]
 
     binary_codes_len = 0
     i = 0
     while i < codes_len * 2:
-        binary_codes_len += int(data[filename_len + 3 + i + 1])
+        binary_codes_len += int(data[filename_len + 4 + i + 1])
         i += 2
 
     logging.debug(f'binary_codes_len={binary_codes_len}')
     # ERREUR DANS LA TABLE DES CODES
     logging.debug(f'bcodelen={binary_codes_len}')
-    start = 3 + filename_len + codes_len * 2
+    start = 4 + filename_len + codes_len * 2
     end =  math.ceil(binary_codes_len / 8) + start
     binary_codes_bin = data[start:end]
 
