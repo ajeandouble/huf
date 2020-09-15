@@ -9,12 +9,9 @@ from textwrap import wrap
 import os
 import math
 
-# DOESNTT WORK WITH BINARY CONTAINING '0' COZ 256 symbols cause integer overflow
 logger = logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
 logging.disable()
 
-compressed_str = ""
-bmap = {}
 
 class Node:
     def __init__(self, content, freq, lchild=None, rchild=None):
@@ -145,7 +142,7 @@ class HuffCoding:
             make_codes_recursion(node.lchild, current_code + "0")
             make_codes_recursion(node.rchild, current_code + "1")
         make_codes_recursion(self.tree.heap[0], '')
-        print(self.codes)
+        logging.debug(f'codes={self.codes}')
         return (self.codes, self.binary_map)
             
 def make_frequency_dict(data):
@@ -165,8 +162,6 @@ def get_encoded_binary(data, codes):
     for byte in data:
         encoded_str += codes[byte]
     logging.info(f'len(encoded_str)={len(encoded_str)}, encoded_str={encoded_str}')
-    global compressed_str
-    compressed_str = encoded_str
 
     if len(encoded_str) % 8 == 0:
         padding = 0
@@ -240,30 +235,27 @@ def compress(path):
             header = create_header(filename, codes, padding, binary_map, encoded_binary)
             data = header + encoded_binary
 
-
-        filename, binary_map, padding, data = parse_file(data)
-        print(filename)
-        deflated_data = deflate_data(binary_map, padding, data)
-        filename += '.bin'
-        with open(filename, 'wb+') as compressed_file:
+        output_filename, _ = os.path.splitext(filename)
+        output_filename += '.huf'
+        breakpoint()
+        with open(output_filename, 'wb') as compressed_file:
             compressed_file.write(data)
     else:
         print(f'File {path} doesnt exist')
 
 def decompress(path):
-    with open(path, 'rb+') as file:
+    with open(path, 'rb') as file:
         data = bytearray()
         byte = file.read(1)
         while byte != b"":
             data += byte
             byte = file.read(1)
-            #print(byte)
     filename, binary_map, padding, data = parse_file(data)
-    print(filename)
     deflated_data = deflate_data(binary_map, padding, data)
 
-    print(deflated_data.decode('utf-8'))
-    print('aaaaa')
+    with open(filename, 'wb') as output_file:
+        output_file.write(deflated_data)
+        print(f'File {filename} successfully deflated')
 
 def parse_file(data):
     filename_len = int(data[0])
@@ -305,8 +297,7 @@ def parse_file(data):
         i += 2
 
     # OFFSET
-    logging.debug(padding)
-    logging.debug(f'\n{bmap}\n{binary_map}')
+    logging.debug(f'parse_file padding={padding}')
     breakpoint()
     
     return filename, binary_map, padding, data[end:]
@@ -321,21 +312,15 @@ def deflate_data(binary_map, padding, data):
         bytes_str += byte
         i += 1
     
-    # PROBLEME FIN
-    # Delete n-padding bits of the last byte
     last_byte = ''
     try:
         last_byte = bin(data[i])[2:].rjust(8, '0')[padding:]
     except:
         pass
-    #print(last_byte) #DBG
     bytes_str += last_byte
 
     logging.debug(f'len(bytes_str)={len(bytes_str)}\tbytes_str={bytes_str}')
     
-    logging.debug(f'\n{compressed_str}\n{bytes_str}')
-    logging.debug((compressed_str == bytes_str))
-    #breakpoint()
     binary = ""
     decoded_text = ""
     decoded_file = bytearray()  
@@ -348,9 +333,6 @@ def deflate_data(binary_map, padding, data):
             binary = ""
     
     logging.debug(f'decoded_file={decoded_file}')
-    #print(decoded_file.decode('utf8'))
-    file = open('teub', 'wb')
-    file.write(decoded_file)
     return decoded_file
 
 def main():
