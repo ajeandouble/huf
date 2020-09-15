@@ -10,7 +10,6 @@ import os
 import math
 
     # PROBLEME QUAND C EST UN MULTIPLE DE 8 (binary_codes_str)
-# DOESNT WORK WITH UTF 8
 logging.basicConfig(stream=sys.stderr, level=logging.DEBUG)
 
 compressed_str = ""
@@ -156,28 +155,24 @@ def make_frequency_dict(data):
         if not content in frequency:
             frequency[content] = 0
         frequency[content] += 1
-        print(content)
+        #print(content)
     return frequency
 
 
 def get_encoded_binary(data, codes):
     encoded_str = ""
     for byte in data:
-        if byte == 0:
-            break
-        encoded_str +=  codes[byte]
-        #print(hex(byte), codes[byte])
+        encoded_str += codes[byte]
     logging.info(f'len(encoded_str)={len(encoded_str)}, encoded_str={encoded_str}')
-    
     global compressed_str
     compressed_str = encoded_str
 
-    if len(encoded_str) == 0:
+    if len(encoded_str) % 8 == 0:
         padding = 0
     else:
         padding = 8 - len(encoded_str) % 8
-    logging.info(f'padding={padding}')
 
+    logging.info(f'padding={padding}')
     encoded_binary = bytearray()
     for i in range(0, len(encoded_str), 8):
         byte = encoded_str[i:i+8]
@@ -232,15 +227,18 @@ def compress(path):
                 data += byte
                 byte = file.read(1)
                 #logging.debug(f'byte={byte}')
-                
+            
             frequency = make_frequency_dict(data)
             H = MinHeap()
             for content, freq in frequency.items():
                 H.insert(Node(content, freq))
             isMinHeap(H.heap)
+            logging.debug(frequency)
             huffman = HuffCoding(H)
             codes, binary_map = huffman.make_codes()
-
+            logging.debug(codes)
+            logging.debug(f'len of data:{len(data)}')
+            breakpoint()
             encoded_binary, padding = get_encoded_binary(data, codes)
             filename = os.path.split(path)[1]
             header = create_header(filename, codes, padding, binary_map, encoded_binary)
@@ -264,7 +262,7 @@ def decompress(path):
         while byte != b"":
             data += byte
             byte = file.read(1)
-            print(byte)
+            #print(byte)
     filename, binary_map, padding, data = parse_file(data)
     print(filename)
     deflated_data = deflate_data(binary_map, padding, data)
@@ -298,7 +296,7 @@ def parse_file(data):
         #print(bin(byte)[2:].rjust(8, '0'), '<-bc')
     #binary_codes_str = binary_codes_str[:binary_codes_len]
 
-    logging.debug(binary_codes_str, len(binary_codes_str))
+    #logging.debug(binary_codes_str, len(binary_codes_str))
     i = 0
     j = 0
     binary_map = {}
@@ -329,7 +327,11 @@ def deflate_data(binary_map, padding, data):
     
     # PROBLEME FIN
     # Delete n-padding bits of the last byte
-    last_byte = bin(data[i])[2:].rjust(8, '0')[padding:]
+    last_byte = ''
+    try:
+        last_byte = bin(data[i])[2:].rjust(8, '0')[padding:]
+    except:
+        pass
     #print(last_byte) #DBG
     bytes_str += last_byte
 
